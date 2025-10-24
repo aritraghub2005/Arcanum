@@ -206,7 +206,7 @@ class _UploadNotesScreenState extends State<UploadNotesScreen> {
                                               fontWeight: FontWeight.w300,
                                               color: Colors.black,
                                             ),
-                                            value: selectedSubject,
+                                            initialValue: selectedSubject,
                                             onChanged: (String? newValue) {
                                               setStateDialog(() {
                                                 selectedSubject = newValue;
@@ -243,7 +243,7 @@ class _UploadNotesScreenState extends State<UploadNotesScreen> {
                                               fontWeight: FontWeight.w300,
                                               color: Colors.black,
                                             ),
-                                            value: selectedCategory,
+                                            initialValue: selectedCategory,
                                             onChanged: (String? newValue) {
                                               setStateDialog(() {
                                                 selectedCategory = newValue;
@@ -286,7 +286,7 @@ class _UploadNotesScreenState extends State<UploadNotesScreen> {
                                                 fontWeight: FontWeight.w300,
                                                 color: Colors.black,
                                               ),
-                                              value: selectedChapter,
+                                              initialValue: selectedChapter,
                                               onChanged: (int? newValue) {
                                                 setStateDialog(() {
                                                   selectedChapter = newValue;

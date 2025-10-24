@@ -30,7 +30,8 @@ export const getAllSubjectsAndDepartment = async (req, res) => {
                 success: false,
                 message: "No departments found"
             })
-        }
+           }
+        console.log("Mark1")
         return res.status(200).json({
             success: true,
             message: "Subjects and Departments fetched successfully",
@@ -45,6 +46,7 @@ export const getAllSubjectsAndDepartment = async (req, res) => {
             error: error.message
         })
     }
+
 }
 
 export const getAllSections = async (req, res) => {

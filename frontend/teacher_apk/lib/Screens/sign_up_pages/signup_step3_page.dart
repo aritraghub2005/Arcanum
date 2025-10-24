@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme.dart';
 import '../../services/api_service.dart';
+import 'dart:convert';
 
 class SignUpStep3Page extends StatefulWidget {
   const SignUpStep3Page({super.key});
@@ -48,33 +49,42 @@ class _SignUpStep3PageState extends State<SignUpStep3Page> {
   Future<void> _verify() async {
     final otp = _controllers.map((c) => c.text).join();
     if (otp.length != 6 || _email == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Please enter the 6-digit code.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter the 6-digit code.')));
       return;
     }
-    setState(() {
-      _isLoading = true;
-    });
-    final response = await ApiService.verifyOtp(email: _email!, otp: otp);
-    setState(() {
-      _isLoading = false;
-    });
+    setState(() { _isLoading = true; });
+
+    final response = await ApiService.verifyOtp(email: _email!, otp: otp, teacherId: '');
+
+    setState(() { _isLoading = false; });
+
     if (response.statusCode == 200) {
+      try {
+        final map = jsonDecode(response.body) as Map<String, dynamic>;
+        final userId = map['user_id']?.toString() ?? map['userId']?.toString();
+        final token = map['token']?.toString();
+        if (userId != null) {
+          await ApiService.saveUserLocally(userId: userId, email: _email!, token: token);
+        }
+      } catch (e) {
+        // ignore if backend returns nothing useful
+      }
+
       Navigator.pushReplacementNamed(context, 'verificationComplete');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Verification failed: ' + response.body)),
+        SnackBar(content: Text('Verification failed: ${response.body}')),
       );
     }
   }
+
 
   Future<void> _resend() async {
     if (_email == null) return;
     setState(() {
       _isLoading = true;
     });
-    final response = await ApiService.resendOtp(email: _email!);
+    final response = await ApiService.resendOtp(email: _email!, teacherId: '');
     setState(() {
       _isLoading = false;
     });
@@ -84,7 +94,7 @@ class _SignUpStep3PageState extends State<SignUpStep3Page> {
       ).showSnackBar(SnackBar(content: Text('OTP resent to your email.')));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to resend OTP: ' + response.body)),
+        SnackBar(content: Text('Failed to resend OTP: ${response.body}')),
       );
     }
   }

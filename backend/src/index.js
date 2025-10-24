@@ -1,6 +1,8 @@
+// index.js - put this at the very top (before any imports that may read process.env)
+import 'dotenv/config';                       // loads .env immediately
+console.log('>>> BOT_TOKEN after dotenv =', process.env.BOT_TOKEN); // debug: remove later
+
 import { app, httpServer } from "./app.js";
-import dotenv from "dotenv";
-dotenv.config();
 import { connectDB } from "./configs/connectDB.js"
 import { redisClient } from "./configs/connectRedis.js"
 import { initializeModels } from "./utils/modelConnector.js";

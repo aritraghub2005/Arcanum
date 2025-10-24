@@ -11,6 +11,16 @@ import { createServer } from 'http';
 dotenv.config();
 
 const app = express();
+// dev-health routes — paste right after app = express() and any app.use(json()) lines
+app.get('/ping', (req, res) => {
+  return res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    envBot: !!process.env.BOT_TOKEN,
+    port: process.env.PORT || 3000
+  });
+});
+
 const httpServer = createServer(app);
 
 //Security middleware

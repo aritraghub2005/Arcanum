@@ -9,10 +9,10 @@ class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   void _showNoticeDetailsDialog(
-    BuildContext context,
-    String title,
-    String fullContent,
-  ) {
+      BuildContext context,
+      String title,
+      String fullContent,
+      ) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -326,7 +326,7 @@ class DashboardPage extends StatelessWidget {
                                   ),
                                   child: Column(
                                     crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Row(
@@ -467,3 +467,4 @@ class _DashboardCard extends StatelessWidget {
     );
   }
 }
+

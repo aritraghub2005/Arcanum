@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 // Note: Ensure your theme.dart, models/signup_data.dart, and services/api_service.dart
 // are correctly structured and accessible for the imports to work.
 import 'package:teacher_apk/theme.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../models/signup_data.dart';
 import '../../services/api_service.dart';
@@ -60,16 +61,17 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
   final GlobalKey<State<DropdownButton<String>>> _departmentDropdownKey =
       GlobalKey();
 
-  List<Map<String, dynamic>> _departments = [];
-  List<Map<String, dynamic>> _subjects = [];
-  List<Map<String, dynamic>> _sections = [];
+  List<String> _designations = [];
+  List<String> _degrees = [];
+  List<String> _years = [];
   String? _selectedDepartmentId;
   String? _selectedDesignation;
 
-  // NEW STATE: List to store confirmed academic units
-  List<AcademicUnit> _academicUnits = [];
+  List<Map<String, dynamic>> _departments = [];
+  List<Map<String, dynamic>> _subjects = [];
+  List<Map<String, dynamic>> _sections = [];
 
-  // Fallback data for API failure
+  // --- ADD THIS FALLBACK LIST ---
   final List<Map<String, dynamic>> _fallbackDepartments = [
     {'id': 'fallback_cse', 'name': 'Computer Science and Engineering (CSE)'},
     {
@@ -90,12 +92,11 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
     {'id': 'fallback_hums', 'name': 'Humanities and Social Sciences'},
   ];
 
-  final List<String> _designations = [
-    'Professor',
-    'Assistant Professor',
-    'Lecturer',
-    'Associate Professor',
-  ];
+  // NEW STATE: List to store confirmed academic units
+  final List<AcademicUnit> _academicUnits = [];
+
+  // Fallback data for API failure
+
 
   @override
   void didChangeDependencies() {
@@ -107,51 +108,87 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
   }
 
   // API Integration: Fetches academic data or uses fallback
+  // In signup_step2_page.dart
+
+  // In _SignUpStep2PageState class
+
   Future<void> _fetchData() async {
     if (_departments.isEmpty) {
       setState(() => _isLoading = true);
     }
 
-    final deptSubRes = await ApiService.getDepartmentsAndSubjects();
-    final sectionRes = await ApiService.getSections();
-
     bool apiSuccess = false;
+    String errorMessage = 'Failed to load academic data. Using fallbacks.';
 
-    if (deptSubRes.statusCode == 200 && sectionRes.statusCode == 200) {
-      try {
-        final deptSubData = Map<String, dynamic>.from(
-          jsonDecode(deptSubRes.body)['data'],
-        );
-        final sectionData = List<Map<String, dynamic>>.from(
-          jsonDecode(sectionRes.body)['data']['sections'],
-        );
+    try {
+      // Fetch all data in parallel
+      final results = await Future.wait([
+        ApiService.getDepartmentsAndSubjects(),
 
-        setState(() {
-          _departments = List<Map<String, dynamic>>.from(
-            deptSubData['departments'],
+        // ApiService.getSections(year: 2027), // Or appropriate year
+        // ApiService.getAcademicConfig(), // <-- ADD THIS
+      ]);
+
+      final deptSubRes = results[0] as http.Response;
+      final sectionRes = results[1] as http.Response;
+      final configRes = results[2] as http.Response; // <-- GET RESULT
+
+      if (deptSubRes.statusCode == 200 &&
+          sectionRes.statusCode == 200 &&
+          configRes.statusCode == 200) { // <-- CHECK ALL
+
+        try {
+          final deptSubData = Map<String, dynamic>.from(
+            jsonDecode(deptSubRes.body)['data'],
           );
-          _subjects = List<Map<String, dynamic>>.from(deptSubData['subjects']);
-          _sections = sectionData;
-        });
-        apiSuccess = true;
-      } catch (e) {
-        print('Error decoding academic data: $e');
+          final sectionData = List<Map<String, dynamic>>.from(
+            jsonDecode(sectionRes.body)['data']['sections'],
+          );
+          // <-- PARSE NEW CONFIG DATA -->
+          final configData = Map<String, dynamic>.from(
+            jsonDecode(configRes.body)['data'],
+          );
+
+          setState(() {
+            _departments = List<Map<String, dynamic>>.from(
+              deptSubData['departments'],
+            );
+            _subjects = List<Map<String, dynamic>>.from(deptSubData['subjects']);
+            _sections = sectionData;
+
+            // <-- POPULATE NEW LISTS -->
+            _designations = List<String>.from(configData['designations']);
+            _degrees = List<String>.from(configData['degrees']);
+            _years = List<String>.from(configData['years']);
+          });
+          apiSuccess = true;
+        } catch (e) {
+          print('Error decoding academic data: $e');
+          errorMessage = 'Failed to parse server data. Using fallbacks.';
+        }
+      } else {
+        print('API Error: ${deptSubRes.statusCode} or ${sectionRes.statusCode} or ${configRes.statusCode}');
+        errorMessage = 'Server returned an error. Using fallbacks.';
       }
+
+    } catch (e) {
+      print('Network error in _fetchData: $e');
+      errorMessage = 'Could not connect to server. Using fallbacks.';
     }
 
-    if (!apiSuccess || _departments.isEmpty) {
+    if (!apiSuccess) {
       setState(() {
         if (_departments.isEmpty) {
           _departments = _fallbackDepartments;
         }
+        // Use fallbacks for config data if needed
+        if (_designations.isEmpty) _designations = ['Professor', 'Assistant Professor'];
+        if (_degrees.isEmpty) _degrees = ['B.Tech', 'M.Tech'];
+        if (_years.isEmpty) _years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
       });
-      if (mounted && deptSubRes.statusCode != 200) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Failed to load academic data. Using extended fallback options.',
-            ),
-          ),
+          SnackBar(content: Text(errorMessage)),
         );
       }
     }
@@ -218,11 +255,15 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
   }
 
   // API Integration: Submits registration data
+  // In _SignUpStep2PageState class
+
+  // In _SignUpStep2PageState class
+
   Future<void> _submit() async {
+    // 1. Validation check
     if (_selectedDepartmentId == null ||
         _selectedDesignation == null ||
         _academicUnits.isEmpty) {
-      // Check against the new academic unit list
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -233,89 +274,162 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
       return;
     }
 
-    signupData?.designation = _selectedDesignation;
+    // 2. NEW: Compile data for the API structure from user.route.js
+    final Set<String> departmentIds = <String>{};
+    final Set<String> subjectIds = <String>{};
+    final Set<String> sectionIds = <String>{};
 
-    // Compile unique IDs from the collected academic units for the API call
-    signupData?.departments = _academicUnits
-        .map((u) => u.departmentId)
-        .toSet()
-        .toList();
-    signupData?.sections = _academicUnits
-        .map((u) => u.sectionId)
-        .toSet()
-        .toList();
-    signupData?.subjects = _academicUnits
-        .map((u) => u.subjectId)
-        .toSet()
-        .toList();
+    // Add the primary department ID
+    departmentIds.add(_selectedDepartmentId!);
 
-    // Ensure the main selected department is included if not covered in a unit
-    if (!(signupData?.departments?.contains(_selectedDepartmentId) ?? true)) {
-      signupData?.departments?.add(_selectedDepartmentId!);
+    // Loop over all added academic units and collect their IDs
+    for (final unit in _academicUnits) {
+      departmentIds.add(unit.departmentId);
+      subjectIds.add(unit.subjectId);
+      sectionIds.add(unit.sectionId);
     }
 
+    // 3. Start loading
     setState(() {
       _isSubmitting = true;
     });
 
-    final response = await ApiService.registerTeacher(
-      fullName: signupData!.fullName!,
-      email: signupData!.email!,
-      password: signupData!.password!,
-      designation: signupData!.designation!,
-      gender: signupData!.gender!,
-      departments: signupData!.departments,
-      subjects: signupData!.subjects,
-      sections: signupData!.sections,
-    );
+    http.Response? response;
+    String errorMessage = 'An unknown error occurred.';
 
-    setState(() {
-      _isSubmitting = false;
-    });
+    // ==========================================================
+    // UPDATED: try-catch block with correct ApiService call
+    // ==========================================================
+    try {
+      // 4. TRY to call the API with the correct structure
+      response = await ApiService.registerTeacher(
+        fullName: signupData!.fullName!,
+        email: signupData!.email!,
+        password: signupData!.password!,
+        designation: _selectedDesignation!,
+        gender: signupData!.gender ?? '',
+        // Pass the correct lists
+        departments: departmentIds.toList(),
+        subjects: subjectIds.toList(),
+        sections: sectionIds.toList(),
+      );
 
-    if (response.statusCode == 201) {
-      if (mounted) {
-        Navigator.pushNamed(
-          context,
-          'signupStep3',
-          arguments: signupData!.email,
-        );
+      // 5. Check the API response
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // SUCCESS!
+        try {
+          final map = jsonDecode(response.body) as Map<String, dynamic>;
+          final dataMap = map['data'] as Map<String, dynamic>?;
+
+          String? userId;
+          String? token;
+
+          if (dataMap != null) {
+            userId = dataMap['teacherId']?.toString();
+            token = dataMap['token']?.toString();
+          } else {
+            userId = map['teacherId']?.toString() ?? map['userId']?.toString();
+            token = map['token']?.toString();
+          }
+
+          if (userId != null) {
+            signupData!.userId = userId;
+
+            await ApiService.saveUserLocally(
+              userId: userId,
+              email: signupData!.email!,
+              token: token,
+            );
+
+            if (mounted) {
+              Navigator.pushNamed(
+                context,
+                'signupStep3', // Assuming this is the OTP page
+                arguments: {
+                  'email': signupData!.email!,
+                  'teacherId': userId, // Pass this to the OTP page
+                },
+              );
+            }
+          } else {
+            errorMessage = 'Registration successful, but user ID was not found.';
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(errorMessage)),
+              );
+            }
+          }
+        } catch (e) {
+          print('Error parsing registration response: $e');
+          errorMessage = 'Registration successful, but response was unreadable.';
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMessage)),
+            );
+          }
+        }
+      } else {
+        // API returned an error
+        String apiError = response.body;
+        try {
+          final errorMap = jsonDecode(response.body) as Map<String, dynamic>;
+          apiError = errorMap['message']?.toString() ?? response.body;
+        } catch (e) {
+          // Not a JSON error
+        }
+        errorMessage = 'Registration failed: $apiError';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage)),
+          );
+        }
       }
-    } else {
+    } catch (e) {
+      // 6. CATCH any network crash
+      print('Error during registration: $e');
+      errorMessage =
+      'Could not connect to the server. Please check your internet.';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed: ' + response.body)),
+          SnackBar(content: Text(errorMessage)),
         );
       }
+    } finally {
+      // 7. FINALLY, stop the loading spinner
+      setState(() {
+        _isSubmitting = false;
+      });
     }
   }
 
+  // Method to show the new "Add Sections" dialog
   // Method to show the new "Add Sections" dialog
   void _showAddSectionsDialog() {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return _AddSectionsDialogContent(
+          // --- UPDATED: Pass all the new lists ---
+          degrees: _degrees,
+          years: _years,
           departments: _departments,
           sections: _sections,
           subjects: _subjects,
-          onConfirm:
-              (
-                String degree,
-                String year,
-                String departmentId,
-                String sectionId,
-                String subjectId,
+          onConfirm: (
+              String degree,
+              String year,
+              String departmentId,
+              String sectionId,
+              String subjectId,
               ) {
-                // Call the new method to add the unit
-                _addAcademicUnit(
-                  degree: degree,
-                  year: year,
-                  departmentId: departmentId,
-                  sectionId: sectionId,
-                  subjectId: subjectId,
-                );
-              },
+            _addAcademicUnit(
+              degree: degree,
+              year: year,
+              departmentId: departmentId,
+              sectionId: sectionId,
+              subjectId: subjectId,
+            );
+          },
         );
       },
     );
@@ -662,6 +776,8 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
 // -------------------------------------------------------------
 
 class _AddSectionsDialogContent extends StatefulWidget {
+  final List<String> degrees;
+  final List<String> years;
   final List<Map<String, dynamic>> departments;
   final List<Map<String, dynamic>> sections;
   final List<Map<String, dynamic>> subjects;
@@ -676,11 +792,12 @@ class _AddSectionsDialogContent extends StatefulWidget {
   onConfirm;
 
   const _AddSectionsDialogContent({
+    required this.degrees,
+    required this.years,
     required this.departments,
     required this.sections,
     required this.subjects,
     required this.onConfirm,
-    super.key,
   });
 
   @override
@@ -689,9 +806,7 @@ class _AddSectionsDialogContent extends StatefulWidget {
 }
 
 class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
-  // Dummy data for Degree and Year
-  final List<String> _degrees = ['B.Tech', 'M.Tech', 'Ph.D'];
-  final List<String> _years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+
 
   String? _selectedDegree;
   String? _selectedYear;
@@ -743,20 +858,13 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
     List<Map<String, dynamic>> data,
     Function(String?) onChanged,
   ) {
-    // If data is empty, use dummy values for UI testing
-    List<Map<String, dynamic>> displayedData = data.isNotEmpty
-        ? data
-        : [
-            {'id': 'dummy1', 'name': 'Dummy ${hintText} 1'},
-            {'id': 'dummy2', 'name': 'Dummy ${hintText} 2'},
-          ];
 
     return _buildDropdownContainer(
       child: DropdownButton<String>(
         isExpanded: true,
         hint: Text(hintText, style: TextStyle(color: Colors.grey[600])),
         value: currentValue,
-        items: displayedData
+        items: data
             .map(
               (e) => DropdownMenuItem(
                 value: e['id'].toString(),
@@ -771,8 +879,42 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
 
   @override
   Widget build(BuildContext context) {
-    final bool canConfirm =
-        _selectedDegree != null &&
+    // --- THIS IS THE CASCADING LOGIC ---
+
+    // --- ADD THESE 5 LINES FOR DEBUGGING ---
+    print('--- DEBUGGING FILTERS ---');
+    print('Selected Department ID: $_selectedDepartmentId');
+    print('Selected Year: $_selectedYear');
+    if (widget.subjects.isNotEmpty) print('First Subject JSON: ${widget.subjects.first}');
+    if (widget.sections.isNotEmpty) print('First Section JSON: ${widget.sections.first}');
+    // -------------------------------------
+
+    // !! IMPORTANT !!
+    // Adjust these keys ('department_id', 'year_name') to match your API JSON
+
+    final List<Map<String, dynamic>> availableSubjects =
+    _selectedDepartmentId != null
+        ? widget.subjects
+        .where((subject) =>
+    // Adjust 'department_id' if your JSON key is different
+    subject['department_id'].toString() == _selectedDepartmentId)
+        .toList()
+        : []; // Empty if parent is not selected
+
+    final List<Map<String, dynamic>> availableSections =
+    _selectedDepartmentId != null && _selectedYear != null
+        ? widget.sections
+        .where((section) =>
+    // Adjust 'department_id' if your JSON key is different
+    section['department_id'].toString() == _selectedDepartmentId &&
+        // Adjust 'year_name' if your JSON key is different
+        section['year_name'] == _selectedYear)
+        .toList()
+        : []; // Empty if parent is not selected
+
+    // --- END CASCADING LOGIC ---
+
+    final bool canConfirm = _selectedDegree != null &&
         _selectedYear != null &&
         _selectedDepartmentId != null &&
         _selectedSectionId != null &&
@@ -792,7 +934,6 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // Heading: Add Sections
               Text(
                 'Add Sections',
                 textAlign: TextAlign.center,
@@ -805,15 +946,22 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
               const SizedBox(height: 24),
 
               // 1. Degree Dropdown
-              _buildStaticDropdown('Degree', _selectedDegree, _degrees, (
-                value,
-              ) {
-                setState(() => _selectedDegree = value);
+              _buildStaticDropdown('Degree', _selectedDegree, widget.degrees, (
+                  value,
+                  ) {
+                setState(() {
+                  _selectedDegree = value;
+                  _selectedYear = null; // <-- RESET CHILD
+                  _selectedSectionId = null; // <-- RESET CHILD
+                });
               }),
 
               // 2. Year Dropdown
-              _buildStaticDropdown('Year', _selectedYear, _years, (value) {
-                setState(() => _selectedYear = value);
+              _buildStaticDropdown('Year', _selectedYear, widget.years, (value) {
+                setState(() {
+                  _selectedYear = value;
+                  _selectedSectionId = null; // <-- RESET CHILD
+                });
               }),
 
               // 3. Department Dropdown
@@ -821,8 +969,12 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
                 'Department',
                 _selectedDepartmentId,
                 widget.departments,
-                (value) {
-                  setState(() => _selectedDepartmentId = value);
+                    (value) {
+                  setState(() {
+                    _selectedDepartmentId = value;
+                    _selectedSectionId = null; // <-- RESET CHILD
+                    _selectedSubjectId = null; // <-- RESET CHILD
+                  });
                 },
               ),
 
@@ -830,8 +982,8 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
               _buildApiDataDropdown(
                 'Section',
                 _selectedSectionId,
-                widget.sections,
-                (value) {
+                availableSections, // <-- USE FILTERED LIST
+                    (value) {
                   setState(() => _selectedSectionId = value);
                 },
               ),
@@ -840,8 +992,8 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
               _buildApiDataDropdown(
                 'Subject',
                 _selectedSubjectId,
-                widget.subjects,
-                (value) {
+                availableSubjects, // <-- USE FILTERED LIST
+                    (value) {
                   setState(() => _selectedSubjectId = value);
                 },
               ),
@@ -854,16 +1006,15 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
                 child: ElevatedButton(
                   onPressed: canConfirm
                       ? () {
-                          // Pass all 5 selected values back to the parent
-                          widget.onConfirm(
-                            _selectedDegree!,
-                            _selectedYear!,
-                            _selectedDepartmentId!,
-                            _selectedSectionId!,
-                            _selectedSubjectId!,
-                          );
-                          Navigator.of(context).pop();
-                        }
+                    widget.onConfirm(
+                      _selectedDegree!,
+                      _selectedYear!,
+                      _selectedDepartmentId!,
+                      _selectedSectionId!,
+                      _selectedSubjectId!,
+                    );
+                    Navigator.of(context).pop();
+                  }
                       : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,

@@ -2,7 +2,8 @@
 import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../models/signup_data.dart';
-import '../../services/api_service.dart';
+import '../../utils/validators.dart';
+
 
 // ================== Sign Up Step 1 Page ==================
 class SignUpStep1Page extends StatefulWidget {
