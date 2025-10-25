@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // TODO: change to your real backend
   // UPDATED: Added the full API path prefix from the docs
-  static const String baseUrl = 'http://localhost:8080/api/v1/teacher';
+  static const String baseUrl = 'https://arcanum-ydce.onrender.com/api/v1/teacher';
   static const Duration apiTimeout = Duration(seconds: 10);
 
   // Register teacher

@@ -125,49 +125,105 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
       final results = await Future.wait([
         ApiService.getDepartmentsAndSubjects(),
 
-        // ApiService.getSections(year: 2027), // Or appropriate year
+        ApiService.getSections(year: 2027), // Or appropriate year
         // ApiService.getAcademicConfig(), // <-- ADD THIS
       ]);
 
       final deptSubRes = results[0] as http.Response;
       final sectionRes = results[1] as http.Response;
-      final configRes = results[2] as http.Response; // <-- GET RESULT
+      // final configRes = results[2] as http.Response; // <-- GET RESULT
 
       if (deptSubRes.statusCode == 200 &&
-          sectionRes.statusCode == 200 &&
-          configRes.statusCode == 200) { // <-- CHECK ALL
+          sectionRes.statusCode == 200) { // <-- CHECK ALL
 
         try {
-          final deptSubData = Map<String, dynamic>.from(
-            jsonDecode(deptSubRes.body)['data'],
-          );
-          final sectionData = List<Map<String, dynamic>>.from(
-            jsonDecode(sectionRes.body)['data']['sections'],
-          );
+          // --- Defensive parsing & logging (REPLACES the unsafe Map.from / List.from calls) ---
+          Map<String, dynamic> deptSubData = {};
+          List<Map<String, dynamic>> sectionData = [];
+
+          try {
+            debugPrint('DEPT_SUB_RESPONSE(status:${deptSubRes.statusCode}): ${deptSubRes.body}');
+            debugPrint('SECTION_RESPONSE(status:${sectionRes.statusCode}): ${sectionRes.body}');
+
+            // Parse dept-sub response safely
+            final decodedDept = jsonDecode(deptSubRes.body);
+            if (decodedDept is Map<String, dynamic>) {
+              final maybeData = decodedDept['data'];
+              if (maybeData is Map<String, dynamic>) {
+                deptSubData = Map<String, dynamic>.from(maybeData);
+              } else {
+                // No data wrapper -> use top-level map, but guard null
+                deptSubData = Map<String, dynamic>.from(decodedDept);
+              }
+            } else {
+              debugPrint('Unexpected deptSubRes JSON shape: ${decodedDept.runtimeType}');
+            }
+
+            // Parse section response safely
+            final decodedSection = jsonDecode(sectionRes.body);
+            if (decodedSection is Map<String, dynamic>) {
+              // prefer data.sections
+              if (decodedSection.containsKey('data') && decodedSection['data'] is Map) {
+                final ds = decodedSection['data'];
+                if (ds is Map && ds['sections'] is List) {
+                  sectionData = List<Map<String, dynamic>>.from(
+                    (ds['sections'] as List).map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
+                  );
+                }
+              }
+              // fallback to top-level "sections" key
+              else if (decodedSection['sections'] is List) {
+                sectionData = List<Map<String, dynamic>>.from(
+                  (decodedSection['sections'] as List).map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
+                );
+              }
+            } else if (decodedSection is List) {
+              // server returned list directly
+              sectionData = List<Map<String, dynamic>>.from(
+                decodedSection.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
+              );
+            } else {
+              debugPrint('Unexpected sectionRes JSON shape: ${decodedSection.runtimeType}');
+            }
+          } catch (e, st) {
+            debugPrint('Error parsing responses in _fetchData: $e\n$st');
+            // leave deptSubData and sectionData empty — fallbacks below handle it
+          }
+
+
           // <-- PARSE NEW CONFIG DATA -->
-          final configData = Map<String, dynamic>.from(
-            jsonDecode(configRes.body)['data'],
-          );
+          // final configData = Map<String, dynamic>.from(
+          //   jsonDecode(configRes.body)['data'],
+          // );
 
           setState(() {
-            _departments = List<Map<String, dynamic>>.from(
-              deptSubData['departments'],
-            );
-            _subjects = List<Map<String, dynamic>>.from(deptSubData['subjects']);
-            _sections = sectionData;
+            _departments = (deptSubData['departments'] is List)
+                ? List<Map<String, dynamic>>.from(deptSubData['departments'].map((e) => e is Map ? Map<String, dynamic>.from(e) : <String,dynamic>{}))
+                : _fallbackDepartments;
 
-            // <-- POPULATE NEW LISTS -->
-            _designations = List<String>.from(configData['designations']);
-            _degrees = List<String>.from(configData['degrees']);
-            _years = List<String>.from(configData['years']);
+            _subjects = (deptSubData['subjects'] is List)
+                ? List<Map<String, dynamic>>.from(deptSubData['subjects'].map((e) => e is Map ? Map<String, dynamic>.from(e) : <String,dynamic>{}))
+                : [];
+
+            _sections = sectionData;
+            // defaults
+            if (_designations.isEmpty) _designations = ['Professor', 'Assistant Professor'];
+            if (_degrees.isEmpty) _degrees = ['B.Tech', 'M.Tech'];
+            if (_years.isEmpty) _years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+
+            _selectedDepartmentId = _departments.any((d) => d['id'].toString() == (_selectedDepartmentId ?? ''))
+                ? _selectedDepartmentId
+                : null;
+
           });
+
           apiSuccess = true;
         } catch (e) {
           print('Error decoding academic data: $e');
           errorMessage = 'Failed to parse server data. Using fallbacks.';
         }
       } else {
-        print('API Error: ${deptSubRes.statusCode} or ${sectionRes.statusCode} or ${configRes.statusCode}');
+        print('API Error: ${deptSubRes.statusCode} or ${sectionRes.statusCode}}');
         errorMessage = 'Server returned an error. Using fallbacks.';
       }
 
@@ -440,12 +496,25 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
   Widget _buildDepartmentDropdown() {
     bool isDataReady = _departments.isNotEmpty;
 
+    // --- FIX: Reset invalid selectedDepartmentId ---
+    if (_selectedDepartmentId != null &&
+        !_departments.any((d) => d['id'].toString() == _selectedDepartmentId)) {
+      _selectedDepartmentId = null;
+    }
+
+
+    // Ensure value is valid
+    if (_selectedDepartmentId != null &&
+        !_departments.any((d) => d['id'].toString() == _selectedDepartmentId)) {
+      _selectedDepartmentId = null;
+    }
+
     return GestureDetector(
       onTap: isDataReady
           ? () {
-              final dynamic state = _departmentDropdownKey.currentState;
-              state?.didChangeDependencies();
-            }
+        final dynamic state = _departmentDropdownKey.currentState;
+        state?.didChangeDependencies();
+      }
           : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -470,25 +539,32 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
                     : Colors.grey[600],
               ),
             ),
-            value: _selectedDepartmentId,
-            items: _departments.map((dept) {
-              return DropdownMenuItem<String>(
-                value: dept['id'].toString(),
-                child: Text(dept['name']),
-              );
-            }).toList(),
+            value: _selectedDepartmentId, // <-- now guaranteed valid or null
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('Select a department'),
+              ),
+              ..._departments.map((dept) {
+                return DropdownMenuItem<String>(
+                  value: dept['id'].toString(),
+                  child: Text(dept['name']),
+                );
+              }).toList(),
+            ],
 
             onChanged: isDataReady
                 ? (value) => setState(() {
-                    _selectedDepartmentId = value;
-                    _selectedDesignation = null;
-                  })
+              _selectedDepartmentId = value;
+              _selectedDesignation = null;
+            })
                 : null,
           ),
         ),
       ),
     );
   }
+
 
   Widget _buildDesignationDropdown() {
     return Container(
@@ -502,9 +578,14 @@ class _SignUpStep2PageState extends State<SignUpStep2Page> {
           isExpanded: true,
           hint: Text('Designation', style: TextStyle(color: Colors.grey[600])),
           value: _selectedDesignation,
-          items: _designations
-              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-              .toList(),
+          items: [
+            const DropdownMenuItem(
+              value: null,
+              child: Text('Select designation'),
+            ),
+            ..._designations.map((e) => DropdownMenuItem(value: e, child: Text(e))),
+          ],
+
           onChanged: (value) => setState(() => _selectedDesignation = value),
         ),
       ),
@@ -879,40 +960,72 @@ class __AddSectionsDialogContentState extends State<_AddSectionsDialogContent> {
 
   @override
   Widget build(BuildContext context) {
-    // --- THIS IS THE CASCADING LOGIC ---
+    // --- CASCADING FILTERS ---
+// Capture non-final state fields into final locals to allow safe promotion
+    final String? selectedDept = _selectedDepartmentId;
+    final String? selectedYear = _selectedYear;
 
-    // --- ADD THESE 5 LINES FOR DEBUGGING ---
+    // --- FIX: Ensure selected values exist in the items ---
+    if (_selectedDepartmentId != null &&
+        !widget.departments.any((d) => d['id'].toString() == _selectedDepartmentId)) {
+      _selectedDepartmentId = null;
+    }
+
+    if (_selectedSectionId != null &&
+        !widget.sections.any((s) => s['id'].toString() == _selectedSectionId)) {
+      _selectedSectionId = null;
+    }
+
+    if (_selectedSubjectId != null &&
+        !widget.subjects.any((s) => s['id'].toString() == _selectedSubjectId)) {
+      _selectedSubjectId = null;
+    }
+
+
+// Optional debug (keep or remove)
     print('--- DEBUGGING FILTERS ---');
-    print('Selected Department ID: $_selectedDepartmentId');
-    print('Selected Year: $_selectedYear');
+    print('Selected Department ID: $selectedDept');
+    print('Selected Year: $selectedYear');
     if (widget.subjects.isNotEmpty) print('First Subject JSON: ${widget.subjects.first}');
     if (widget.sections.isNotEmpty) print('First Section JSON: ${widget.sections.first}');
-    // -------------------------------------
 
-    // !! IMPORTANT !!
-    // Adjust these keys ('department_id', 'year_name') to match your API JSON
+// Available subjects: filter by department_id where possible, otherwise keep all
+    final List<Map<String, dynamic>> availableSubjects = selectedDept != null
+        ? widget.subjects.where((subject) {
+      final subjDept = (subject['department_id'] ?? '').toString();
+      // if we have no department mapping on subject, include it (can't decide)
+      if (subjDept.isEmpty) return true;
+      return subjDept == selectedDept;
+    }).toList()
+        : widget.subjects;
 
-    final List<Map<String, dynamic>> availableSubjects =
-    _selectedDepartmentId != null
-        ? widget.subjects
-        .where((subject) =>
-    // Adjust 'department_id' if your JSON key is different
-    subject['department_id'].toString() == _selectedDepartmentId)
-        .toList()
-        : []; // Empty if parent is not selected
+// Available sections: try to filter by department and year where possible.
+    final List<Map<String, dynamic>> availableSections = widget.sections.where((section) {
+      final secDept = (section['department_id'] ?? '').toString();
+      // try both 'year', 'year_name', and 'batch' keys from API
+      final secYear = (section['year'] ?? section['year_name'] ?? section['batch'] ?? '').toString();
 
-    final List<Map<String, dynamic>> availableSections =
-    _selectedDepartmentId != null && _selectedYear != null
-        ? widget.sections
-        .where((section) =>
-    // Adjust 'department_id' if your JSON key is different
-    section['department_id'].toString() == _selectedDepartmentId &&
-        // Adjust 'year_name' if your JSON key is different
-        section['year_name'] == _selectedYear)
-        .toList()
-        : []; // Empty if parent is not selected
+      bool deptMatches = true;
+      bool yearMatches = true;
 
-    // --- END CASCADING LOGIC ---
+      // Department match: only enforce if user selected a department and the section has a dept link
+      if (selectedDept != null && secDept.isNotEmpty) {
+        deptMatches = secDept == selectedDept;
+      }
+
+      // Year match: only enforce if user selected a year and the section provides a year/batch
+      if (selectedYear != null && secYear.isNotEmpty) {
+        // Safe to call contains because selectedYear is final and non-null here
+        yearMatches = secYear == selectedYear ||
+            secYear.contains(selectedYear) ||
+            selectedYear.contains(secYear);
+      }
+
+      return deptMatches && yearMatches;
+    }).toList();
+
+// --- END CASCADING FILTERS ---
+
 
     final bool canConfirm = _selectedDegree != null &&
         _selectedYear != null &&
